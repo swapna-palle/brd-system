@@ -1,0 +1,22 @@
+[
+  {
+    "source_id": "ADR-TECH-001",
+    "source_type": "tech_decision",
+    "title": "ADR-001: .NET 8 (C#) + PostgreSQL over Java/Python for Core Services",
+    "metadata": {
+      "decision_status": "accepted",
+      "category": "backend_stack"
+    },
+    "content": "ADR-001: Standardized on .NET 8 LTS (C# 12) with ASP.NET Core and PostgreSQL (Npgsql) for core business services. Rationale: 90% of internal engineering staff are senior C# developers, strong static typing reduces runtime defects, and Npgsql delivers top-tier throughput."
+  },
+  {
+    "source_id": "ADR-TECH-002",
+    "source_type": "tech_decision",
+    "title": "ADR-002: MassTransit + Azure Service Bus over Custom Queue Consumers",
+    "metadata": {
+      "decision_status": "accepted",
+      "category": "messaging"
+    },
+    "content": "ADR-002: Selected MassTransit over Azure Service Bus for all asynchronous .NET workflows. Rationale: Built-in EF Core Transactional Outbox, automatic retry/dead-letter handling, and seamless local RabbitMQ testing via Testcontainers."
+  }
+]

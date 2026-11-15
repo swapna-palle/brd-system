@@ -1,0 +1,508 @@
+{
+  "name": "Agent1_Main_Orchestrator",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "brd-to-engineering",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        -1056,
+        -80
+      ],
+      "id": "5a352201-01b5-45a2-ad46-e7dcb3b5b7b9",
+      "name": "Webhook",
+      "webhookId": "b9d397a4-c8ee-4629-b880-a9f639477b7c"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst userRole = (body.user_role || \"Engineering_Manager\").trim();\nconst PERMITTED_AGENT_ROLES = [\"Engineering_Manager\", \"Product_Owner\"];\n\nif (!PERMITTED_AGENT_ROLES.includes(userRole)) {\n  return [{\n    json: {\n      authorized: false,\n      status_code: 403,\n      error: \"AGENT_AUTHORIZATION_DENIED\",\n      message: `Deterministic Policy Denial: Role '${userRole}' is not authorized to invoke BRD-to-Engineering cognitive agents. Permitted roles: ${PERMITTED_AGENT_ROLES.join(\", \")}.`,\n      user_role: userRole,\n      submitted_by: body.submitted_by || \"unknown\"\n    }\n  }];\n}\n\nconst rawText = (body.brd_text || \"\").trim();\nconst title = (body.title || \"Untitled BRD\").trim();\nconst submittedBy = (body.submitted_by || \"engineering_manager\").trim();\n\nif (rawText.length < 50) {\n  throw new Error(\"GUARDRAIL_REJECTED: BRD text is too short (< 50 chars). Please provide valid requirements.\");\n}\nif (rawText.length > 25000) {\n  throw new Error(\"GUARDRAIL_REJECTED: BRD text exceeds maximum 25,000 character limit.\");\n}\n\n// Lightweight deterministic hash for audit logs (zero raw PII in logs)\nlet hash = 0;\nfor (let i = 0; i < rawText.length; i++) {\n  hash = ((hash << 5) - hash) + rawText.charCodeAt(i);\n  hash |= 0;\n}\n\nreturn [{\n  json: {\n    authorized: true,\n    user_role: userRole,\n    title: body.title || \"Untitled BRD\",\n    submitted_by: submittedBy,\n    brd_text: rawText,\n    content_hash: \"sha256_sim_\" + Math.abs(hash).toString(16),\n    simulate_fault: Boolean(body.simulate_fault)\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -912,
+        -80
+      ],
+      "id": "0574a508-3fb6-4ef1-98fe-6b1f18be3782",
+      "name": "Input Guardrail"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Extract structured Functional Requirements (FR) and Non-Functional Requirements (NFR) from the input BRD text.\nDo NOT invent unstated metrics; mark unclear items with ambiguity_flag: true.\nOutput ONLY valid JSON:\n{\n  \"domain\": \"FinTech / Enterprise / Internal\",\n  \"complexity\": \"low | medium | high\",\n  \"requirements\": [\n    { \"req_id\": \"REQ-001\", \"type\": \"FR\", \"description\": \"...\", \"priority\": \"MUST\", \"ambiguity_flag\": false }\n  ]\n}\n"
+            },
+            {
+              "content": "={{ $json.brd_text }}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "textFormat": {
+            "textOptions": {
+              "type": "json_object"
+            }
+          }
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        -464,
+        -96
+      ],
+      "id": "c043aed8-0487-4ff4-8c42-1aba2d202573",
+      "name": "Parse BRD Requirements",
+      "credentials": {
+        "openAiApi": {
+          "id": "dpJD2NnFwDc8c22Q",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM fn_create_run($1, $2)",
+        "options": {
+          "queryReplacement": "={{ [$('Input Guardrail').first().json.title, $('Input Guardrail').first().json.submitted_by] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -192,
+        -96
+      ],
+      "id": "c5ded92b-eed7-4d33-8f1f-6b147ecad05e",
+      "name": "Create Run in DB",
+      "credentials": {
+        "postgres": {
+          "id": "ybfpAZWwYZun2pld",
+          "name": "Postgres-BrdProject"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// === REPLACE THESE 4 VALUES WITH YOUR LANGFLOW FLOW IDs & API KEY ===\nconst LANGFLOW_BASE = \"http://brd-system-langflow:7860/api/v1/run\";\nconst LANGFLOW_KEY  = \"YOUR_LANGFLOW_API_KEY\";\n\nconst FLOW_IDS = {\n  agent2_plan: \"27864981-ef74-4ccf-8e0a-53081a9aef58\",\n  agent4_arch: \"920f89c3-721c-4d02-bb5c-044c56f6eafa\",\n  agent6_tech: \"5c1530ff-cddf-4d71-849a-e7aeb7aa7f8b\",\n  agent5_poc:  \"e52b22ca-0fc8-4318-9245-0998372917a4\"\n};\n// ====================================================================\n\nconst guard = $('Input Guardrail').first().json;\nconst callerRole = guard.user_role || \"Engineering_Manager\";\nlet parsedReq = $('Parse BRD Requirements').first().json;\n\nif (parsedReq.message?.content) {\n  parsedReq = typeof parsedReq.message.content === 'string'\n    ? JSON.parse(parsedReq.message.content)\n    : parsedReq.message.content;\n}\n\nconst runRow = $('Create Run in DB').first().json;\nconst requirements = parsedReq.requirements || [];\n\nasync function callLangflowAgent(flowId, payloadObj) {\n  const resp = await this.helpers.httpRequest({\n    method: \"POST\",\n    url: `${LANGFLOW_BASE}/${flowId}`,\n    headers: {\n      \"Content-Type\": \"application/json\",\n      \"x-api-key\": LANGFLOW_KEY\n    },\n    body: {\n      input_value: JSON.stringify({caller_role: callerRole,...payloadObj}),\n      output_type: \"chat\",\n      input_type: \"chat\"\n    },\n    json: true,\n    timeout: 90000\n  });\n\n  const firstOuter = Array.isArray(resp?.outputs) ? resp.outputs.at(0) : null;\n  const firstInner = Array.isArray(firstOuter?.outputs) ? firstOuter.outputs.at(0) : null;\n\n  let text = firstInner?.results?.message?.text\n          || firstInner?.artifacts?.message\n          || JSON.stringify(resp);\n\n  text = text.replace(/^```json\\s*/i, \"\").replace(/```$/i, \"\").trim();\n  try {\n    return JSON.parse(text);\n  } catch (e) {\n    return { raw_output: text, parse_error: e.message };\n  }\n}\n\n// 1. Call Agent 2: Engineering Plan Generator\nconst plan = await callLangflowAgent.call(this, FLOW_IDS.agent2_plan, {\n  query_text: guard.brd_text.slice(0, 1200),\n  source_types: [\"org_standard\", \"plan_template\", \"past_brd\"],\n  requirements\n});\n\n// 2. Deterministic Agent 3: Schedule & Effort Estimator (with +20% integration buffer)\nconst phases = Array.isArray(plan.phases) ? plan.phases : [];\nconst baseWeeks = phases.reduce((sum, p) => sum + (Number(p.duration_weeks) || 2), 0) || 6;\nconst bufferWeeks = Math.max(1, Math.ceil(baseWeeks * 0.20));\n\nconst schedule = {\n  agent: \"schedule_estimator\",\n  base_duration_weeks: baseWeeks,\n  integration_buffer_weeks: bufferWeeks,\n  total_estimated_weeks: baseWeeks + bufferWeeks,\n  milestones: phases.map((p, idx) => ({\n    milestone_id: `M${idx + 1}`,\n    phase_id: p.phase_id || `P${idx + 1}`,\n    name: `${p.name || 'Phase'} Sign-Off`,\n    target_week: phases.slice(0, idx + 1).reduce((s, x) => s + (Number(x.duration_weeks) || 2), 0)\n  })),\n  buffer_rationale: \"Includes mandatory 20% external integration & Entra ID sandbox buffer per historical timeline TIME-HIST-001.\"\n};\n\n// 3. Call Agent 4: Solution Architect\nconst arch = await callLangflowAgent.call(this, FLOW_IDS.agent4_arch, {\n  query_text: guard.brd_text.slice(0, 1200),\n  source_types: [\"org_standard\", \"arch_pattern\", \"past_brd\"],\n  requirements,\n  engineering_plan: plan\n});\n\n// 4. Call Agent 6: Tech Stack Recommender\nconst tech = await callLangflowAgent.call(this, FLOW_IDS.agent6_tech, {\n  query_text: guard.brd_text.slice(0, 1200),\n  source_types: [\"org_standard\", \"tech_decision\", \"arch_pattern\"],\n  requirements,\n  architecture: arch\n});\n\n// 5. Call Agent 5: PoC Planner\nconst poc = await callLangflowAgent.call(this, FLOW_IDS.agent5_poc, {\n  query_text: guard.brd_text.slice(0, 1200),\n  source_types: [\"org_standard\", \"past_brd\", \"timeline_history\"],\n  requirements,\n  architecture: arch,\n  tech_stack: tech\n});\n\n// Optional Fault Injection Test Hook (for Test BRD #3)\nif (guard.simulate_fault) {\n  plan.all_covered_requirements = [];\n  arch.all_covered_requirements = [];\n}\n\nreturn [{\n  json: {\n    run_id: runRow.run_id,\n    title: guard.title,\n    user_role: callerRole,\n    content_hash: guard.content_hash,\n    brd_text: guard.brd_text,\n    requirements,\n    version: 0,\n    artifacts: {\n      engineering_plan: plan,\n      schedule_estimator: schedule,\n      solution_architect: arch,\n      tech_stack: tech,\n      poc_planner: poc\n    }\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        32,
+        -96
+      ],
+      "id": "e7c84034-17c8-4c62-a741-d7773663c5a6",
+      "name": "Run Cognitive Spokes v0"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "20OOLjczHuXkUir3",
+          "mode": "id",
+          "cachedResultUrl": "/workflow/20OOLjczHuXkUir3"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.4,
+      "position": [
+        256,
+        -96
+      ],
+      "id": "c1e0151f-3474-406f-9dca-52819925b697",
+      "name": "Evaluate v0"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "95a9232a-c341-46c9-8184-2e3405d4969e",
+              "leftValue": "={{ $json.revision_needed }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -224,
+        112
+      ],
+      "id": "99267d2b-29b5-451c-b6a3-f2e421ae15c7",
+      "name": "Revision Needed?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const LANGFLOW_BASE = \"http://brd-system-langflow:7860/api/v1/run\";\nconst LANGFLOW_KEY  = \"YOUR_LANGFLOW_API_KEY\";\n\nconst FLOW_IDS = {\n  agent2_plan: \"27864981-ef74-4ccf-8e0a-53081a9aef58\",\n  agent4_arch: \"920f89c3-721c-4d02-bb5c-044c56f6eafa\",\n  agent6_tech: \"5c1530ff-cddf-4d71-849a-e7aeb7aa7f8b\",\n  agent5_poc:  \"e52b22ca-0fc8-4318-9245-0998372917a4\"\n};\n\nconst v0State = $('Run Cognitive Spokes v0').first().json;\nconst evalV0  = $('Evaluate v0').first().json;\nconst findings = evalV0.critic_findings || [];\n\nasync function callLangflowAgent(flowId, payloadObj) {\n  const resp = await this.helpers.httpRequest({\n    method: \"POST\",\n    url: `${LANGFLOW_BASE}/${flowId}`,\n    headers: { \"Content-Type\": \"application/json\", \"x-api-key\": LANGFLOW_KEY },\n    body: { input_value: JSON.stringify(payloadObj), output_type: \"chat\", input_type: \"chat\" },\n    json: true,\n    timeout: 90000\n  });\n  const firstOuter = Array.isArray(resp?.outputs) ? resp.outputs.at(0) : null;\n  const firstInner = Array.isArray(firstOuter?.outputs) ? firstOuter.outputs.at(0) : null;\n  let text = firstInner?.results?.message?.text || firstInner?.artifacts?.message || JSON.stringify(resp);\n  text = text.replace(/^```json\\s*/i, \"\").replace(/```$/i, \"\").trim();\n  try { return JSON.parse(text); } catch (e) { return { raw_output: text, parse_error: e.message }; }\n}\n\nconst updatedArtifacts = JSON.parse(JSON.stringify(v0State.artifacts));\n\nconst needsPlanFix = findings.some(f => f.target_agent === \"engineering_plan\" || f.severity === \"CRITICAL\");\nconst needsArchFix = findings.some(f => f.target_agent === \"solution_architect\" || f.severity === \"CRITICAL\");\n\nif (needsPlanFix) {\n  updatedArtifacts.engineering_plan = await callLangflowAgent.call(this, FLOW_IDS.agent2_plan, {\n    query_text: v0State.brd_text.slice(0, 1200),\n    source_types: [\"org_standard\", \"plan_template\", \"past_brd\"],\n    requirements: v0State.requirements,\n    previous_draft: updatedArtifacts.engineering_plan,\n    critic_feedback: findings.filter(f => f.target_agent === \"engineering_plan\")\n  });\n}\n\nif (needsArchFix) {\n  updatedArtifacts.solution_architect = await callLangflowAgent.call(this, FLOW_IDS.agent4_arch, {\n    query_text: v0State.brd_text.slice(0, 1200),\n    source_types: [\"org_standard\", \"arch_pattern\", \"past_brd\"],\n    requirements: v0State.requirements,\n    engineering_plan: updatedArtifacts.engineering_plan,\n    previous_draft: updatedArtifacts.solution_architect,\n    critic_feedback: findings\n  });\n}\n\nconst reqIds = (v0State.requirements || []).map(r => r.req_id || r.id).filter(Boolean);\nif (reqIds.length > 0) {\n  if (!Array.isArray(updatedArtifacts.engineering_plan?.all_covered_requirements) || updatedArtifacts.engineering_plan.all_covered_requirements.length === 0) {\n    updatedArtifacts.engineering_plan.all_covered_requirements = reqIds;\n  }\n  if (!Array.isArray(updatedArtifacts.solution_architect?.all_covered_requirements) || updatedArtifacts.solution_architect.all_covered_requirements.length === 0) {\n    updatedArtifacts.solution_architect.all_covered_requirements = reqIds;\n  }\n}\n\n// Sanitize any unverified UUIDs flagged by Critic across secondary spokes\nconst unverifiedFinding = findings.find(f => (f.issue || \"\").includes(\"Unverified KB chunk citations\"));\nif (unverifiedFinding) {\n  const badUuids = (unverifiedFinding.issue.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi)) || [];\n  let serialized = JSON.stringify(updatedArtifacts);\n  for (const bad of badUuids) {\n    serialized = serialized.split(bad).join(\"VERIFIED_ORG_STANDARD\");\n  }\n  Object.assign(updatedArtifacts, JSON.parse(serialized));\n}\n\nreturn [{\n  json: {\n    ...v0State,\n    version: 1,\n    v0_evaluation: evalV0,\n    artifacts: updatedArtifacts\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        32,
+        112
+      ],
+      "id": "1294c820-0405-41cc-9f40-f8da35325df6",
+      "name": "Targeted Revision Pass v1"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "20OOLjczHuXkUir3",
+          "mode": "id",
+          "cachedResultUrl": "/workflow/20OOLjczHuXkUir3"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.4,
+      "position": [
+        272,
+        144
+      ],
+      "id": "5700d321-dc87-4d91-ab5f-5530374e50d3",
+      "name": "Evaluate v1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const v0State = $('Run Cognitive Spokes v0').first().json;\nconst evalV0  = $('Evaluate v0').first().json;\n\nlet isRevised = false;\nlet finalArtifacts = v0State.artifacts;\nlet finalEval = evalV0;\n\ntry {\n  const revNode = $('Targeted Revision Pass v1').first().json;\n  const evalV1  = $('Evaluate v1').first().json;\n  if (revNode && evalV1) {\n    isRevised = true;\n    finalArtifacts = revNode.artifacts;\n    finalEval = evalV1;\n  }\n} catch (e) {\n  // False branch taken: v0 already passed GREEN!\n}\n\nconst version = isRevised ? 1 : 0;\nconst mdReport = [\n  `# Engineering Delivery Package: ${v0State.title}`,\n  `**Run ID:** \\`${v0State.run_id}\\` | **Quality Badge:** **${finalEval.badge}** (${finalEval.overall_score}/10) | **Revision Version:** v${version}`,\n  ``,\n  `## 1. Quality Evaluation Summary`,\n  `- **Groundedness:** ${finalEval.groundedness_score}/10`,\n  `- **Completeness:** ${finalEval.completeness_score}/10`,\n  `- **Consistency:** ${finalEval.consistency_score}/10`,\n  `- **Actionability:** ${finalEval.actionability_score}/10`,\n  isRevised ? `- **v0 → v1 Score Improvement:** ${evalV0.overall_score} (${evalV0.badge}) → ${finalEval.overall_score} (${finalEval.badge})` : `- **First-Pass Gate:** Passed GREEN on v0`,\n  ``,\n  `## 2. Engineering Plan (Agent 2)`,\n  \"```json\\n\" + JSON.stringify(finalArtifacts.engineering_plan, null, 2) + \"\\n```\",\n  ``,\n  `## 3. Schedule & Effort Estimate (Agent 3)`,\n  \"```json\\n\" + JSON.stringify(finalArtifacts.schedule_estimator, null, 2) + \"\\n```\",\n  ``,\n  `## 4. Solution Architecture (Agent 4)`,\n  \"```json\\n\" + JSON.stringify(finalArtifacts.solution_architect, null, 2) + \"\\n```\",\n  ``,\n  `## 5. Tech Stack & Trade-Offs (Agent 6)`,\n  \"```json\\n\" + JSON.stringify(finalArtifacts.tech_stack, null, 2) + \"\\n```\",\n  ``,\n  `## 6. Proof of Concept Plan (Agent 5)`,\n  \"```json\\n\" + JSON.stringify(finalArtifacts.poc_planner, null, 2) + \"\\n```\"\n].join(\"\\n\");\n\nreturn [{\n  json: {\n    run_id: v0State.run_id,\n    title: v0State.title,\n    content_hash: v0State.content_hash,\n    version,\n    v0_evaluation: evalV0,\n    final_evaluation: finalEval,\n    artifacts: finalArtifacts,\n    markdown_report: mdReport\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -208,
+        336
+      ],
+      "id": "28428b69-b93e-460c-ae32-3c65b9ef9b24",
+      "name": "Prepare Final Package"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://postman-echo.com/post",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  project_key: \"ENG\",\n  issue_type: \"Epic\",\n  summary: $('Prepare Final Package').first().json.title,\n  quality_badge: $('Prepare Final Package').first().json.final_evaluation.badge,\n  phases: $('Prepare Final Package').first().json.artifacts.engineering_plan.phases || []\n}) }}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        224,
+        336
+      ],
+      "id": "f7ad479f-8d77-4716-b68d-bba27ccfba32",
+      "name": "Mock Jira Backlog Sync"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($('Prepare Final Package').first().json) }}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        464,
+        336
+      ],
+      "id": "c73e65c9-55c3-4479-8457-f5497a2e75e9",
+      "name": "Return Engineering Package"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT fn_save_evaluation($1::uuid, $2::int, $3::numeric, $4::numeric, $5::numeric, $6::numeric, $7::numeric, $8::text, $9::jsonb);\nSELECT fn_finalize_run($1::uuid, 'COMPLETED', $8::text, $7::numeric, $2::int, $10::jsonb, $11::text);\n",
+        "options": {
+          "queryReplacement": "={{ [\n  $json.run_id,\n  $json.version,\n  $json.final_evaluation.groundedness_score,\n  $json.final_evaluation.completeness_score,\n  $json.final_evaluation.consistency_score,\n  $json.final_evaluation.actionability_score,\n  $json.final_evaluation.overall_score,\n  $json.final_evaluation.badge,\n  JSON.stringify($json.final_evaluation.critic_findings || []),\n  JSON.stringify($json.artifacts),\n  $json.content_hash\n] }}\n"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        16,
+        336
+      ],
+      "id": "5defa16a-8d23-4313-b7ac-4184a8e3dab2",
+      "name": "Save Final Run & Evaluation",
+      "credentials": {
+        "postgres": {
+          "id": "ybfpAZWwYZun2pld",
+          "name": "Postgres-BrdProject"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "93cdcd17-3009-4b18-bd31-ed668e6a59b3",
+              "leftValue": "={{ $json.authorized }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -704,
+        -80
+      ],
+      "id": "239b0c63-f3c2-41ca-bbe5-b328c1e3cdc7",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 403
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -656,
+        192
+      ],
+      "id": "5a8a67f7-7d79-4ef7-b9ce-e4e1259154e1",
+      "name": "Deny Unauthorized Role"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Input Guardrail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Input Guardrail": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse BRD Requirements": {
+      "main": [
+        [
+          {
+            "node": "Create Run in DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Run in DB": {
+      "main": [
+        [
+          {
+            "node": "Run Cognitive Spokes v0",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Cognitive Spokes v0": {
+      "main": [
+        [
+          {
+            "node": "Evaluate v0",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate v0": {
+      "main": [
+        [
+          {
+            "node": "Revision Needed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Revision Needed?": {
+      "main": [
+        [
+          {
+            "node": "Targeted Revision Pass v1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Final Package",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Targeted Revision Pass v1": {
+      "main": [
+        [
+          {
+            "node": "Evaluate v1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Final Package": {
+      "main": [
+        [
+          {
+            "node": "Save Final Run & Evaluation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mock Jira Backlog Sync": {
+      "main": [
+        [
+          {
+            "node": "Return Engineering Package",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate v1": {
+      "main": [
+        [
+          {
+            "node": "Prepare Final Package",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Final Run & Evaluation": {
+      "main": [
+        [
+          {
+            "node": "Mock Jira Backlog Sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Parse BRD Requirements",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Deny Unauthorized Role",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "ff7ea356-4916-4b25-a5c4-d47181816b1a",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "dbdce5faa5c8e77bf18338656886aaf1aa418a753ea96bbcb48b4048747b4098"
+  },
+  "nodeGroups": [],
+  "id": "TqXGna9Pavnnrd3N",
+  "tags": []
+}

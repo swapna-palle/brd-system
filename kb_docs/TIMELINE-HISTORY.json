@@ -1,0 +1,24 @@
+[
+  {
+    "source_id": "TIME-HIST-001",
+    "source_type": "timeline_history",
+    "title": "Enterprise Client Onboarding Portal (.NET 8 + React)",
+    "metadata": {
+      "domain": "FinTech",
+      "complexity": "medium",
+      "variance_pct": 25
+    },
+    "content": "Historical Timeline: Enterprise Client Onboarding Portal (.NET 8 Web API + React TypeScript, Medium Complexity). Team: 4 engineers (2 .NET Backend, 1 React Frontend, 1 QA). Planned: 8 weeks. Actual: 10 weeks (+25% variance due to third-party KYC API sandbox delays). Recommendation: Always include a 20% integration buffer for external vendor APIs."
+  },
+  {
+    "source_id": "TIME-HIST-002",
+    "source_type": "timeline_history",
+    "title": "Internal Operations Approval Hub (.NET 8 + Blazor)",
+    "metadata": {
+      "domain": "Internal Tools",
+      "complexity": "low",
+      "variance_pct": 0
+    },
+    "content": "Historical Timeline: Internal Operations Approval Hub (.NET 8 + Blazor Server, Low Complexity). Team: 2 full-stack .NET engineers. Planned: 4 weeks. Actual: 4 weeks (0% variance). Stack: .NET 8 Modular Monolith + PostgreSQL on Azure App Service."
+  }
+]

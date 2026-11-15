@@ -1,0 +1,145 @@
+{
+  "name": "Critic_and_Judge",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -288,
+        -16
+      ],
+      "id": "a28744ae-9421-45db-8604-d0b7375ef950",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are Agent 7: Principal Engineering Critic & Quality Judge in a Microsoft/.NET enterprise organization.\nEvaluate the generated engineering artifacts against the original BRD requirements and organizational standards across 4 dimensions (each scored 0.0 to 10.0):\n1. Groundedness (0-10): Are claims, patterns (.NET 8, Entra ID, MassTransit, PostgreSQL), and timelines backed by valid citations rather than invented assumptions?\n2. Completeness (0-10): Are ALL input requirement IDs (FRs and NFRs) explicitly mapped across the Plan, Architecture, and Schedule?\n3. Consistency (0-10): Do the Engineering Plan phases, Schedule weeks, Solution Architecture components, Tech Stack, and PoC match without contradictions?\n4. Actionability (0-10): Are deliverables, acceptance criteria, API endpoints, and PoC exit criteria concrete enough for an engineering team to execute?\n\nCRITICAL RULES:\n- Identify specific defects, missing requirement mappings, contradictions, or ungrounded claims.\n- For each defect, name the exact target_agent (\"engineering_plan\", \"schedule_estimator\", \"solution_architect\", \"poc_planner\", or \"tech_stack\") and give a concrete repair_instruction.\n- Output ONLY valid JSON matching this exact schema:\n{\n  \"llm_scores\": {\n    \"groundedness\": 8.5,\n    \"completeness\": 8.0,\n    \"consistency\": 8.5,\n    \"actionability\": 8.5\n  },\n  \"findings\": [\n    {\n      \"severity\": \"HIGH\",\n      \"target_agent\": \"solution_architect\",\n      \"issue\": \"Specific contradiction or missing requirement\",\n      \"repair_instruction\": \"Exact instruction to fix it in the next revision round\"\n    }\n  ]\n}\n"
+            },
+            {
+              "content": "={{ JSON.stringify($json) }}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "textFormat": {
+            "textOptions": {
+              "type": "json_object"
+            }
+          }
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        -64,
+        -16
+      ],
+      "id": "8a92241e-e0a7-41ed-8eff-c77861b514e4",
+      "name": "Message a model",
+      "credentials": {
+        "openAiApi": {
+          "id": "dpJD2NnFwDc8c22Q",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT chunk_id::text FROM kb_chunks;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        304,
+        32
+      ],
+      "id": "33e4bcf9-cc3d-448a-9cc3-7505f1b6f4c6",
+      "name": "Execute a SQL query",
+      "credentials": {
+        "postgres": {
+          "id": "ybfpAZWwYZun2pld",
+          "name": "Postgres-BrdProject"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const triggerData = $('When Executed by Another Workflow').first().json;\nconst llmRaw      = $('Message a model').first().json;\nconst validRows   = $input.all();\nconst validSet    = new Set(validRows.map(r => r.json.chunk_id));\n\n// Extract real OpenAI JSON regardless of n8n node version wrapper\nlet candidate = llmRaw.message?.content\n  ?? llmRaw.content\n  ?? llmRaw.text\n  ?? (Array.isArray(llmRaw.output) ? llmRaw.output.at(0)?.content?.at(0)?.text : null)\n  ?? llmRaw;\n\nlet judgeData = {};\nif (typeof candidate === 'string') {\n  const cleaned = candidate.replace(/^```json\\s*/i, \"\").replace(/```$/i, \"\").trim();\n  try { judgeData = JSON.parse(cleaned); } catch (e) { judgeData = {}; }\n} else if (candidate && typeof candidate === 'object') {\n  judgeData = candidate;\n}\n\nlet groundedness  = Number(judgeData.groundedness_score ?? 8.0);\nlet completeness  = Number(judgeData.completeness_score ?? 8.0);\nlet consistency   = Number(judgeData.consistency_score ?? 8.0);\nlet actionability = Number(judgeData.actionability_score ?? 8.0);\nconst findings    = Array.isArray(judgeData.critic_findings) ? [...judgeData.critic_findings] : [];\n\n// 1. Deterministic UUID Citation Verification\nconst uuidRegex = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;\nconst citedIds  = (JSON.stringify(triggerData.artifacts || {}).match(uuidRegex)) || [];\nconst fakeIds   = [...new Set(citedIds.filter(id => !validSet.has(id.toLowerCase())))];\n\nif (fakeIds.length > 0 && validSet.size > 0) {\n  groundedness = Math.max(0, groundedness - 2.0);\n  findings.push({\n    severity: \"CRITICAL\",\n    target_agent: \"solution_architect\",\n    issue: `Unverified KB chunk citations detected: ${fakeIds.join(\", \")}`,\n    repair_instruction: \"Replace unverified UUIDs with exact CHUNK_ID values returned by PgVector KB Retriever.\"\n  });\n}\n\n// 2. Deterministic Requirement Coverage Check\nconst reqs    = Array.isArray(triggerData.requirements) ? triggerData.requirements : [];\nconst planCov = triggerData.artifacts?.engineering_plan?.all_covered_requirements || [];\nconst archCov = triggerData.artifacts?.solution_architect?.all_covered_requirements || [];\nconst missingReqs = reqs\n  .map(r => r.req_id || r.id)\n  .filter(id => id && (!planCov.includes(id) || !archCov.includes(id)));\n\nif (missingReqs.length > 0 || planCov.length === 0 || archCov.length === 0) {\n  completeness = Math.max(0, completeness - 3.5);\n  const missingLabel = missingReqs.length > 0 ? missingReqs.join(\", \") : \"ALL_BRD_REQUIREMENTS (empty coverage array)\";\n  findings.push({\n    severity: \"CRITICAL\",\n    target_agent: \"solution_architect\",\n    issue: `Missing requirement coverage for: ${missingLabel}`,\n    repair_instruction: `Explicitly map all BRD requirements in engineering_plan.all_covered_requirements and solution_architect.all_covered_requirements.`\n  });\n}\n\n// 3. Deterministic Ambiguity / Feasibility Escalation Check (triggers AMBER -> HITL review)\nconst artifactStr  = JSON.stringify(triggerData.artifacts || {}).toLowerCase();\nconst reqsHaveAmbiguity = reqs.some(r => r.ambiguity_flag === true);\nconst hasAmbiguity = reqsHaveAmbiguity || artifactStr.includes('\"ambiguity_flag\":true') || artifactStr.includes('\"ambiguity_flag\": true');\n\nconst hasConflict  = /unrealistic|infeasible|1 week|zero budget|conflict/i.test(triggerData.brd_text || \"\");\n\nif (hasAmbiguity || hasConflict) {\n  completeness  = Math.max(0, completeness - 1.5);\n  actionability = Math.max(0, actionability - 1.5);\n  findings.push({\n    severity: \"MAJOR\",\n    target_agent: \"human_reviewer\",\n    issue: hasConflict\n      ? \"Conflicting or unrealistic delivery constraints detected (requires EM & customer trade-off sign-off).\"\n      : \"Unstated NFR metrics / ambiguities detected (requires customer clarification before release).\",\n    repair_instruction: \"Escalate to Engineering Manager in HITL console.\"\n  });\n}\n\n// Weighted Overall Score: Groundedness 30%, Completeness 30%, Consistency 25%, Actionability 15%\nconst overall = Number((\n  groundedness  * 0.30 +\n  completeness  * 0.30 +\n  consistency   * 0.25 +\n  actionability * 0.15\n).toFixed(2));\n\nconst hasCritical = findings.some(f => f.severity === \"CRITICAL\");\nlet badge = \"GREEN\";\nif (overall < 6.0) {\n  badge = \"RED\";\n} else if (overall < 8.0 || hasCritical) {\n  badge = \"AMBER\";\n}\n\nconst revisionNeeded = badge !== \"GREEN\";\n\nreturn [{\n  json: {\n    groundedness_score: Number(groundedness.toFixed(2)),\n    completeness_score: Number(completeness.toFixed(2)),\n    consistency_score: Number(consistency.toFixed(2)),\n    actionability_score: Number(actionability.toFixed(2)),\n    overall_score: overall,\n    badge,\n    revision_needed: revisionNeeded,\n    critic_findings: findings\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        528,
+        32
+      ],
+      "id": "dabd268b-b676-4d75-9cb7-aa91a941220f",
+      "name": "Code in JavaScript"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "1f02d81a-091a-41f7-8889-852fbe62d600",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "dbdce5faa5c8e77bf18338656886aaf1aa418a753ea96bbcb48b4048747b4098"
+  },
+  "nodeGroups": [],
+  "id": "20OOLjczHuXkUir3",
+  "tags": []
+}

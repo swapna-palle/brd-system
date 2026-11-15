@@ -1,0 +1,50 @@
+services:
+  langflow:
+    image: langflowai/langflow:latest
+    container_name: brd-system-langflow
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:7860:7860"
+    environment:
+      - LANGFLOW_DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@host.docker.internal:${POSTGRES_PORT}/${LANGFLOW_DB}
+      - LANGFLOW_AUTO_LOGIN=True
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - POSTGRES_HOST=host.docker.internal
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - langflow_data:/app/langflow
+    networks:
+      - brd_agent_net
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: brd-system-n8n
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5678:5678"
+    environment:
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=host.docker.internal
+      - DB_POSTGRESDB_PORT=${POSTGRES_PORT}
+      - DB_POSTGRESDB_DATABASE=${N8N_DB}
+      - DB_POSTGRESDB_USER=${POSTGRES_USER}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      - GENERIC_TIMEZONE=Asia/Kolkata
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - brd_agent_net
+
+volumes:
+  langflow_data:
+  n8n_data:
+
+networks:
+  brd_agent_net:
+    driver: bridge

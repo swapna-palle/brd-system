@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Azure Landing Zone & AKS Deployment Guide</title>
+  <meta name="source_id" content="CONF-AZ-001">
+  <meta name="source_type" content="org_standard">
+  <meta name="source_system" content="sharepoint_wiki">
+</head>
+<body>
+  <nav>Internal Portal | Home | Architecture</nav>
+  <h1>Azure Landing Zone &amp; AKS Standards</h1>
+  <h2>Compute and Hosting Tier Selection</h2>
+  <p>Standard .NET 8 Web APIs with fewer than 2,500 requests per second must deploy to Azure App Service (Linux P1v3 or P2v3) with zone redundancy enabled. High-throughput microservices exceeding 5,000 RPS or requiring custom sidecars must deploy to Azure Kubernetes Service (AKS) with KEDA autoscaling.</p>
+  <h2>Network Isolation and Private Endpoints</h2>
+  <p>All production PostgreSQL Flexible Server, Azure Key Vault, Redis Enterprise, and Azure Service Bus instances must disable public internet access and expose private endpoints inside the corporate VNet.</p>
+  <footer>Confidential - Internal Engineering Wiki</footer>
+</body>
+</html>

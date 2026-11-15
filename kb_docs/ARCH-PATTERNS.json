@@ -1,0 +1,32 @@
+[
+  {
+    "source_id": "ARCH-PAT-001",
+    "source_type": "arch_pattern",
+    "title": ".NET 8 Modular Monolith Pattern",
+    "metadata": {
+      "pattern": "dotnet_modular_monolith",
+      "scale": "low_to_medium"
+    },
+    "content": "Architecture Pattern: .NET 8 Modular Monolith with ASP.NET Core, MediatR, and PostgreSQL. Best for teams under 8 .NET engineers and throughput below 2,500 RPS. Pros: Fast delivery, strict ACID transactions across modules, single Azure App Service deployment. Cons: Shared runtime scaling limits if one module is CPU-bound."
+  },
+  {
+    "source_id": "ARCH-PAT-002",
+    "source_type": "arch_pattern",
+    "title": "Event-Driven .NET Microservices with Azure Service Bus",
+    "metadata": {
+      "pattern": "dotnet_event_driven_microservices",
+      "scale": "high"
+    },
+    "content": "Architecture Pattern: Event-Driven .NET 8 Microservices on AKS using MassTransit, Azure Service Bus, and EF Core Outbox. Best for >5,000 RPS or strict compliance isolation. Pros: Independent scaling and fault isolation. Cons: Eventual consistency complexity and higher Azure infrastructure/DevOps overhead."
+  },
+  {
+    "source_id": "ARCH-PAT-003",
+    "source_type": "arch_pattern",
+    "title": "Hybrid Workflow Control Plane + Cognitive Worker Pattern",
+    "metadata": {
+      "pattern": "hybrid_agent_orchestration",
+      "scale": "medium"
+    },
+    "content": "Architecture Pattern: Deterministic Workflow Control Plane (n8n) + AI Cognitive Workers (Langflow) backed by PostgreSQL/pgvector, integrating with enterprise .NET 8 REST APIs. Best for AI automation requiring strict state machines, audit trails, schema validation, and human-in-the-loop approval."
+  }
+]
