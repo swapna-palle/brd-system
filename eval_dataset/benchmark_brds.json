@@ -1,0 +1,118 @@
+{
+  "dataset_version": "1.0",
+  "description": "Evaluation Dataset covering Low, Medium, and High complexity BRDs, Expert-Scored Critic Calibration Cases, and Edge-Case Guardrail Triggers.",
+  "scenarios": [
+    {
+      "eval_id": "EVAL-001",
+      "category": "simple_brd",
+      "title": "Internal Operations Approval Hub",
+      "user_role": "Engineering_Manager",
+      "simulate_fault": false,
+      "brd_text": "Business Requirement Document: Internal Operations Approval Hub. REQ-001: Build an internal web application using .NET and PostgreSQL for managers to approve travel and equipment requests. REQ-002: Enforce Microsoft Entra ID single sign-on with role-based access control for Employees and Managers. REQ-003: Provide an immutable audit log of all approvals and rejections. NFR-001: Expected peak load is 150 concurrent internal users with p95 API latency under 300ms.",
+      "expected_outputs": {
+        "required_req_ids": ["REQ-001", "REQ-002", "REQ-003", "NFR-001"],
+        "expected_architecture": "Clean Modular Monolith",
+        "expected_badge": "GREEN",
+        "min_overall_score": 8.0,
+        "max_revisions": 0
+      },
+      "expert_critic_calibration": {
+        "groundedness": 9.0,
+        "completeness": 8.8,
+        "consistency": 8.5,
+        "actionability": 8.4,
+        "calibration_notes": "All 4 requirements mapped cleanly with valid KB chunk citations and zero critical defects."
+      }
+    },
+    {
+      "eval_id": "EVAL-002",
+      "category": "medium_brd",
+      "title": "Enterprise Vendor Onboarding & Settlement Portal",
+      "user_role": "Product_Owner",
+      "simulate_fault": false,
+      "brd_text": "Business Requirement Document: Enterprise Vendor Onboarding & Settlement Portal. REQ-001: Build a Clean Architecture portal allowing enterprise vendors to register tax profiles and bank accounts. REQ-002: Integrate with a third-party external KYC verification REST API with resilience retries and circuit breakers. REQ-003: Publish VendorApproved domain events reliably using a transactional outbox pattern. REQ-004: Enforce idempotency keys on all state-mutating payout and approval POST endpoints. NFR-001: System must support 1,200 requests per second, 99.95% availability, and OIDC authentication.",
+      "expected_outputs": {
+        "required_req_ids": ["REQ-001", "REQ-002", "REQ-003", "REQ-004", "NFR-001"],
+        "expected_buffer_pct": 20,
+        "expected_badge": "GREEN",
+        "min_overall_score": 8.5,
+        "jira_sync_allowed": false
+      },
+      "expert_critic_calibration": {
+        "groundedness": 9.4,
+        "completeness": 9.3,
+        "consistency": 9.1,
+        "actionability": 9.2,
+        "calibration_notes": "Golden reference package saved in sample_engineering_package.md; Product_Owner role restricts Jira write sync."
+      }
+    },
+    {
+      "eval_id": "EVAL-003",
+      "category": "complex_fault_injection",
+      "title": "Multi-Currency Treasury Payout Engine (Self-Healing Calibration)",
+      "user_role": "Engineering_Manager",
+      "simulate_fault": true,
+      "brd_text": "Business Requirement Document: Multi-Currency Treasury Payout Engine. REQ-001: Process automated cross-border vendor payouts in USD, EUR, and GBP using PostgreSQL. REQ-002: Enforce dual-control manager approval workflow via OIDC RBAC before releasing funds. REQ-003: Guarantee exactly-once idempotent ledger postings with full audit trail.",
+      "expected_outputs": {
+        "v0_expected_badge": "AMBER",
+        "v1_expected_badge": "GREEN",
+        "expected_revisions": 1,
+        "min_score_lift": 1.0
+      },
+      "expert_critic_calibration": {
+        "v0_overall_score": 6.95,
+        "v1_overall_score": 8.0,
+        "calibration_notes": "Fault injection drops requirement coverage on v0 (Completeness 4.50 -> AMBER); targeted revision pass v1 restores completeness to 8.00 (GREEN)."
+      }
+    },
+    {
+      "eval_id": "EVAL-004",
+      "category": "edge_case_ambiguity",
+      "title": "Customer Notification Service (Missing NFR Metrics)",
+      "user_role": "Engineering_Manager",
+      "simulate_fault": false,
+      "brd_text": "Business Requirement Document: Customer Notification Service. REQ-001: Send email and SMS alerts when vendor invoices are approved. REQ-002: System must be fast, highly available, and secure for enterprise users.",
+      "expected_outputs": {
+        "expected_ambiguity_flag": true,
+        "must_not_hallucinate_sla": true,
+        "expected_clarification_questions": true
+      }
+    },
+    {
+      "eval_id": "EVAL-005",
+      "category": "edge_case_conflict",
+      "title": "Global Real-Time Settlement Engine (Contradictory Constraints)",
+      "user_role": "Engineering_Manager",
+      "simulate_fault": false,
+      "brd_text": "Business Requirement Document: Global Real-Time Settlement Engine. REQ-001: Build a multi-region active-active cross-border banking settlement platform. NFR-001: Must support 50,000 TPS with 99.999% uptime and full PCI-DSS certification. CONSTRAINT-001: Total delivery timeline must be 1 week with 1 developer and zero infrastructure budget.",
+      "expected_outputs": {
+        "expected_badge": "AMBER",
+        "expected_revisions": 1,
+        "escalate_to_hitl": true
+      }
+    },
+    {
+      "eval_id": "EVAL-006",
+      "category": "guardrail_short_input",
+      "title": "Invalid Short Input Guardrail",
+      "user_role": "Engineering_Manager",
+      "brd_text": "Build an app quickly.",
+      "expected_outputs": {
+        "expected_http_status": 500,
+        "blocked_before_llm": true
+      }
+    },
+    {
+      "eval_id": "EVAL-007",
+      "category": "guardrail_unauthorized_role",
+      "title": "Unauthorized Caller Role Policy Denial",
+      "user_role": "Others",
+      "brd_text": "Business Requirement Document: Unauthorized Access Test. REQ-001: Attempt to trigger multi-agent planning pipeline with an unprivileged role.",
+      "expected_outputs": {
+        "expected_http_status": 403,
+        "error_code": "AGENT_AUTHORIZATION_DENIED",
+        "blocked_before_llm": true
+      }
+    }
+  ]
+}

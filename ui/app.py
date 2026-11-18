@@ -214,7 +214,8 @@ if "last_result" in st.session_state:
     findings = final_eval.get("critic_findings", [])
 
     st.divider()
-    st.subheader(f"📦 Delivery Package: {res.get('title')} (`Run ID: {res.get('run_id')}`)")
+    display_title = res.get("title") if res.get("title") not in (None, "", "None", "null") else "No Title"
+    st.subheader(f"📦 Delivery Package: {display_title} (Run ID: `{res['run_id']}`)")
 
     m1, m2, m3, m4, m5, m6 = st.columns(6)
     m1.metric("Quality Badge", badge, f"v{res.get('version', 0)}")
@@ -276,7 +277,7 @@ if "last_result" in st.session_state:
             "Review open ambiguities or Critic findings below before releasing to Jira."
         )
         if findings:
-            st.json(findings)
+            st.dataframe(findings, use_container_width=True, hide_index=True)
     else:
         st.info("✅ Quality gate passed **GREEN**. Confirm Engineering Manager sign-off to log human audit approval.")
 
@@ -321,6 +322,36 @@ if "last_result" in st.session_state:
             if st.button("❌ Reject & Request Customer Clarification"):
                 record_hitl_decision("REJECTED_BY_EM")
 
+    def render_agent_tab(data):
+        if not isinstance(data, dict) or not data:
+            st.info("No output generated for this agent.")
+            return
+        for k, v in data.items():
+            if k in ("agent", "citations", "all_covered_requirements"):
+                continue
+            label = k.replace("_", " ").title()
+            if isinstance(v, list) and v and all(isinstance(x, dict) for x in v):
+                st.markdown(f"**{label}**")
+                st.dataframe(v, use_container_width=True, hide_index=True)
+            elif isinstance(v, list):
+                st.markdown(f"**{label}:**")
+                for item in v:
+                    st.markdown(f"- {item}")
+            elif isinstance(v, dict):
+                st.markdown(f"**{label}:**")
+                for dk, dv in v.items():
+                    st.markdown(f"- **{dk.replace('_', ' ').title()}:** {dv}")
+            else:
+                st.markdown(f"**{label}:** {v}")
+        if data.get("all_covered_requirements"):
+            st.markdown(f"**Covered Requirements:** `{', '.join(str(r) for r in data['all_covered_requirements'])}`")
+        if data.get("citations"):
+            st.markdown(f"**KB Citations (`CHUNK_ID`):** `{', '.join(str(c) for c in data['citations'])}`")
+
+    if res.get("markdown_report"):
+        with st.expander("📄 Formatted Engineering Delivery Package (Executive View)", expanded=False):
+            st.markdown(res["markdown_report"])
+
     # Toggleable Agent Execution Logs (Deselected by default)
     st.divider()
     show_agent_logs = st.checkbox("🔍 Show Agent Execution Outputs & Critic Logs", value=False)
@@ -334,14 +365,14 @@ if "last_result" in st.session_state:
             "⚖️ Critic & Judge Findings (Agent 7)"
         ])
         with tab1:
-            st.json(artifacts.get("engineering_plan", {}))
+            render_agent_tab(artifacts.get("engineering_plan", {}))
         with tab2:
-            st.json(artifacts.get("schedule_estimator", {}))
+            render_agent_tab(artifacts.get("schedule_estimator", {}))
         with tab3:
-            st.json(artifacts.get("solution_architect", {}))
+            render_agent_tab(artifacts.get("solution_architect", {}))
         with tab4:
-            st.json(artifacts.get("tech_stack", {}))
+            render_agent_tab(artifacts.get("tech_stack", {}))
         with tab5:
-            st.json(artifacts.get("poc_planner", {}))
+            render_agent_tab(artifacts.get("poc_planner", {}))
         with tab6:
-            st.json(final_eval)
+            render_agent_tab(final_eval)
